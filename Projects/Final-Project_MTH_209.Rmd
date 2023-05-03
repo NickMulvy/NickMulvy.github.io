@@ -1,0 +1,523 @@
+---
+title: "Pitching Wins in the MLB"
+author:
+output: 
+  flexdashboard::flex_dashboard:
+    theme:
+     version: 4
+     bootswatch: minty
+     navbar-bg: "blue"
+     code_font: Menlo
+     orientation: columns
+     vertical_layout: fill
+---
+
+
+
+
+<style>
+.chart-title {  /* chart_title  */
+   font-size: 18px;
+  }
+body{ /* Normal  */
+      font-size: 14px;
+  }
+</style>
+
+
+```{r setup}
+library(flexdashboard)
+library(tidyverse)
+library(baseballr)
+library(baseballDBR)
+library(Lahman)
+
+pitching <- read_csv("Pitching.csv")
+stadium <- read_csv("stadium_jsutteamname.csv")
+postszn <- read_csv("PitchingPost.csv")
+team_standings <- read_csv("Teams.csv")
+
+
+team_standings <- team_standings %>%
+  select(yearID, lgID, franchID, teamID, G, W, L, DivWin, WCWin, LgWin, WSWin)
+
+baseball_teams <- merge(team_standings, pitching, by = c("yearID", "lgID", "teamID"))
+```
+
+
+
+
+Introduction
+================================
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+### Abstract
+
+**An Analysis of Pitching MLB Statistics to determine whether or not defense determines a teams success**
+
+The purpose of this study is conduct something that people don't typically look at. This study is all about pitching statistics for the MLB. We have famous movies including Moneyball that show how constructing a team surrounding offense and On-base percentage prove to be a full proof plan to win championships. 
+
+Many managers attempt to use sabermetrics in order to give their team the best chance at winning. What if we look at the other side of baseball. The defensive/pitching side - can this still yield results that give us championships? We often hear many baseball cliches including the most famouos, "Defense Wins Championships" Lets find out how true this statement may be for the MLB, and if managers are looking at this all wrong. 
+
+### Research Question(s)
+
+1) Is there a relationship between strong pitching performance, and regular season wins?
+<br>
+2) 
+<br>
+3) Which has a stronger correlation to wins, batting or pitching?
+<br>
+4) Is ERA play a factor into a teams performance in the regular season
+<br>
+5) How much of an effect does ERA play in the post season, specifically for World Series Wins?
+<br>
+
+Column {data-width=425}
+-----------------------------------------------------------------------
+
+### Data Information
+
+```{r datatable}
+library(shiny)
+library(DT)
+datatable <- baseball_teams %>%
+  select(yearID, franchID, teamID, G.x, W.x, L.x, DivWin, LgWin, WSWin, ERA)
+
+datatable <- datatable %>%
+  group_by(yearID, teamID)
+
+datatable(datatable, 
+          rownames = FALSE,
+          colnames = c("yearID", "Franchise", "teamID", "G.x", "W.x", "L.x", "DivWin", "LgWin", "WSWin", "ERA"),
+          class = "hover",
+          options = list(columnDefs = list(list(className = 'dt-center', targets = 1:5)), 
+                         pageLength = 5, 
+                         initComplete = JS("function(settings, json) {",
+                                            "$(this.api().table().header()).css({'background-color': '#4582ec', 'color': '#fff'});","}")))
+```
+
+
+
+
+```{r other variables}
+pitching <- pitching %>% 
+  filter(G > 20, GS > 10)
+
+lgERA <- sum(pitching$ER) / sum(pitching$IPouts) * 27
+FIP_constant <- lgERA - 3.2
+
+pitching$SOPG <- pitching$SO / pitching$G
+
+pitching$FIP <- ((13*pitching$HR)+(3*(pitching$BB+pitching$HBP))-(2*pitching$SO))/pitching$IPouts + FIP_constant
+```
+
+
+
+
+Data
+=======================================================================
+Column {.tabset data-width=500}
+-----------------------------------------------------------------------
+
+
+### ERA Data
+
+```{r histo}
+library(plotly)
+ERA <- ggplot(pitching, aes(x = ERA)) +
+  geom_histogram(fill = "#30ADE7", color = "white", bins = 10) +
+  labs(title = "Histogram of ERA",
+       x = "ERA") +
+  theme(text = element_text(size = 12)) +
+  scale_x_continuous(limits = c(0, 8)) +
+  theme_minimal()
+
+ggplotly(ERA)
+```
+
+### SOPG Data
+
+```{r sopg graph}
+SOPG <- ggplot(pitching, aes(x = SOPG)) +
+  geom_histogram(fill = "#005A32", color = "black", bins = 10) +
+  labs(title = "Histogram of Strikeouts Per Game",
+       x = "Strikeouts per Game") +
+  theme(text = element_text(size = 14)) +
+  theme_minimal()
+
+ggplotly(SOPG)
+```
+
+
+### Pitching Correlation
+
+```{r corel}
+library(corrplot)
+library(ggcorrplot)
+
+correl_pitching <- cor(pitching[c(6,11,12,14,15,16,17,18,27,31)])
+corrplot(correl_pitching, type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45)
+```
+
+
+### Batting Correlation
+
+```{r batting osn}
+batting <- read_csv("Batting.csv")
+batting <- na.omit(batting)
+correl_batting <- cor(batting[c(6:22)])
+
+corrplot(correl_batting, type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45)
+
+```
+
+### Understanding the Data
+
+```{r choose}
+library(gridExtra)
+group_pitching <- pitching %>%
+  group_by(yearID, teamID) %>%
+  mutate(total_IP = sum(IPouts)/3, 
+            total_ERA = sum(ER*9)/(sum(IPouts)/3), 
+            total_strikeouts = sum(SO))
+
+
+post_group_pitching <- postszn %>%
+  group_by(yearID, teamID) %>%
+  mutate(total_IP = sum(IPouts)/3, 
+            total_ERA = sum(ER*9)/(sum(IPouts)/3), 
+            total_strikeouts = sum(SO))
+
+avg_SO <- group_pitching %>%
+  group_by(yearID) %>%
+  mutate(avg_total_SO = mean(total_strikeouts))
+
+group_pitching <- filter(group_pitching, BAOpp < 5)
+
+
+plot1 <- ggplot(group_pitching, aes(x = W, y = FIP)) + 
+  geom_point(col = "darkorange") + 
+  labs(title = "Wins vs FIP",
+       x = "Wins",
+       y = "FIP")
+
+plot2 <- ggplot(group_pitching, aes(x = W, y = ERA)) + 
+  geom_point(col = "darkorange") + 
+  labs(title = "Wins vs ERA",
+       x = "Wins",
+       y = "ERA")
+
+plot3 <- ggplot(group_pitching, aes(x = W, y = total_ERA)) + 
+  geom_point(col = "darkorange") + 
+  labs(title = "Wins vs Team ERA",
+       x = "Wins",
+       y = "ERA")
+
+plot4 <- ggplot(group_pitching, aes(x = W, y = total_strikeouts)) + 
+  geom_point(col = "darkorange") + 
+  labs(title = "Wins vs SO",
+       x = "Wins",
+       y = "SO")
+
+plot5 <- ggplot(group_pitching, aes(x = W, y = BAOpp)) + 
+  geom_point(col = "darkorange") + 
+  labs(title = "Wins vs batter BA",
+       x = "Wins",
+       y = "BA")
+plot6 <- ggplot(group_pitching, aes(x = W, y = SOPG)) + 
+  geom_point(col = "darkorange") + 
+  labs(title = "Wins vs SOPG",
+       x = "Wins",
+       y = "SOPG")
+
+grid.arrange(plot1, plot2, plot4, plot5, nrow = 2, ncol = 2)
+```
+
+
+
+Performance
+=======================================================================
+
+Column {.tabset data-width=500}
+-----------------------------------------------------------------------
+
+### Strikeouts vs. Team Wins
+
+```{r analysis1}
+pitching1 <- read_csv("Pitching.csv")
+teams1 <- read_csv("Teams.csv")
+team_pitching_stats <- pitching1 %>%
+  group_by(yearID, teamID) %>%
+  summarise(
+    total_W = sum(W, na.rm = TRUE),
+    total_SO = sum(SO, na.rm = TRUE),
+    total_ERA = mean(ERA, na.rm = TRUE)
+  )
+
+team_data <- merge(teams1, team_pitching_stats, by = c("yearID", "teamID"))
+
+team_pitching_stats1 <- pitching %>%
+  group_by(yearID, teamID) %>%
+  summarise(
+    total_W = sum(W, na.rm = TRUE),
+    total_SO = sum(SO, na.rm = TRUE),
+    total_BB = sum(BB, na.rm = TRUE),
+    total_IPouts = sum(IPouts, na.rm = TRUE),
+    total_H = sum(H, na.rm = TRUE)
+  ) %>%
+  mutate(
+    K_BB_ratio = total_SO / total_BB,
+    H_9 = total_H / (total_IPouts / 27),
+    BB_9 = total_BB / (total_IPouts / 27),
+    K_9 = total_SO / (total_IPouts / 27)
+  )
+
+team_data1 <- merge(teams1, team_pitching_stats1, by = c("yearID", "teamID"))
+
+
+
+ggplot(team_data, aes(x = total_SO, y = W)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  labs(x = "Strikeouts", y = "Team Wins")
+```
+
+### ERA vs Team Wins
+
+```{r bruh45}
+ggplot(team_data, aes(x = total_ERA, y = W)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  labs(x = "Earned Run Average", y = "Team Wins")
+```
+
+### Graph for ERA vs Winning %
+
+
+```{r era to wins}
+ggplot(baseball_teams, aes(x = ERA, y = W.y / (W.y + L.y))) +
+  geom_point(col = "blue") +
+  labs(x = "Team ERA", y = "Winning Percentage")
+```
+
+
+### Strikeouts per Nine Innings Over Time
+
+
+```{r psot season or not}
+ggplot(team_data1, aes(x = yearID, y = K_9)) +
+  geom_line(aes(group = teamID), alpha = 0.5) +
+  labs(x = "Year", y = "K/9")
+```
+
+
+
+
+
+
+Group Comparison
+===
+
+Column {.tabset data-width=500}
+-----------------------------------------------------------------------
+
+
+### Cluster Analysis
+
+```{r cluster}
+library(cluster)
+
+normalized_stats <- scale(team_data1[, c("K_BB_ratio", "H_9", "BB_9", "K_9")])
+
+
+set.seed(123)
+kmeans_result <- kmeans(normalized_stats, centers = 2)
+
+
+team_data1$cluster <- kmeans_result$cluster
+
+
+ggplot(team_data1, aes(x = K_9, y = K_BB_ratio, color = as.factor(cluster))) +
+  geom_point() +
+  labs(title = "K/9 vs. K/BB Ratio Clusters", x = "K/9", y = "K/BB Ratio", color = "Cluster") +
+  scale_y_continuous(limits = c(0,7))
+```
+
+
+
+
+
+```{r  data creation}
+ws_win_counts <- teams1 %>%
+  filter(WSWin == "Y") %>%
+  group_by(teamID) %>%
+  summarize(ws_wins = n())
+
+
+team_data_ws <- merge(team_data1, ws_win_counts, by = "teamID", all.x = TRUE)
+
+
+team_data_ws$ws_wins[is.na(team_data_ws$ws_wins)] <- 0
+
+team_data_ws$win_pct <- team_data_ws$W / (team_data_ws$W + team_data_ws$L)
+
+
+```
+
+
+
+
+
+
+### Fig. 1: Win Percentage
+
+```{r}
+graph1 <- ggplot(team_data_ws, aes(x = as.factor(cluster), y = win_pct)) +
+  geom_boxplot() +
+  labs(title = "Win Percentage by Cluster", x = "Cluster", y = "Win Percentage")
+
+ggplotly(graph1)
+```
+
+
+### Fig. 2: ERA
+
+```{r}
+graph3 <- ggplot(team_data_ws, aes(x = as.factor(cluster), y = ERA)) +
+  geom_boxplot() +
+  labs(title = "ERA by Cluster", x = "Cluster", y = "ERA")
+
+ggplotly(graph3)
+```
+
+### Fig. 3: Total SO
+
+```{r grpah4}
+graph4 <- ggplot(team_data_ws, aes(x = as.factor(cluster), y = total_SO)) +
+  geom_boxplot() +
+  labs(title = "Total SO by Cluster", x = "Cluster", y = "SO")
+
+ggplotly(graph4)
+```
+
+
+Map
+=======================================================================
+
+```{r map}
+library(leaflet)
+library(dplyr)
+
+team_data_map <- merge(team_data_ws, stadium, by = "teamID")
+cluster_colors <- c("blue", "red")
+
+leaflet(team_data_map) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~lng,
+    lat = ~lat,
+    popup = ~paste0("Team: ", teamID, "<br>Cluster: ", cluster),
+    color = ~cluster_colors[cluster],
+    radius = 6,
+    stroke = FALSE,
+    fillOpacity = 0.8
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    colors = cluster_colors,
+    labels = c("Cluster 1", "Cluster 2"),
+    title = "Clusters"
+  )
+```
+
+
+
+
+
+Chord
+=======================================================================
+
+### Chord of World Series Winners
+
+```{r chord}
+library(readxl)
+World_series <- read_excel("World_series.xlsx")
+
+pacman::p_load(tidyverse, stringr, chorddiag)
+
+mat <- table(World_series$Teams, World_series$WSW)
+
+dimnames(mat) <- list(Teams = rownames(mat),
+                      WSW = colnames(mat))
+colorcount <- nrow(mat)
+getPalette <- grDevices::colorRampPalette(RColorBrewer::brewer.pal(9, "Set1"))
+chorddiag(mat, type = "bipartite", 
+          width = 850,
+          height = 640,
+          showTicks =FALSE,
+          groupnameFontsize = 13,
+          groupnamePadding = 20,
+          groupThickness = 0.05,
+          categorynamePadding = 150,
+          chordedgeColor = "gray",
+          categoryNames = c("Team", "World Series"),
+          tooltipUnit = "Win(s)",
+          groupColors = getPalette(colorcount)
+          )
+```
+
+
+
+Final Analysis
+=======================================================================
+
+Column
+-----------------------------------------------------------------------
+### ERA
+
+```{r fip/siera}
+top_ERA <- read_excel("top 6 world series.xlsx")
+top_ERA <- top_ERA[, -c(49:53)]
+
+
+top_ERA <- top_ERA %>% 
+  group_by(teamID) %>% 
+  summarise(avg_ERA = mean(ERA))
+
+
+top_ERA <- top_ERA %>% 
+  arrange(avg_ERA)
+
+p5 <- ggplot(top_ERA, aes(x = teamID, y = avg_ERA)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Team", y = "Average ERA", title = "Top 6 Teams by WS Wins") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14, face = "bold"))
+
+ggplotly(p5)
+```
+
+
+Column
+-----------------------------------------------------------------------
+### Outside Source
+
+```{r , fig.width=8, echo=FALSE, fig.cap="MLB ERA", fig.align='right'}
+knitr::include_graphics("MLB_ERA_SCREENSHOT.jpg")
+```
+
+### Final Thoughts
+
+
+- Pitching is not as great of a predictor of regular season wins compared to batting. There still is slight relationship between pitching and wins
+<br>
+- ERA is a factor in regular season play, however, ERA is much better predictor in the post season. Teams that have consistently won the world series have lower ERA's than the MLB average.
+<br>
+- Sabermetrics is much better on the offensive side. There are less hidden variables, and batters seem to be much more consistent than pitchers.
+<br>
+- Having a good pitching staff is best in the post season due to the large quantity of games played in the regular season.
+
